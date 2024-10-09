@@ -63,7 +63,7 @@ bld/
 [Bb]uild/
 
 !data/**/[Bb]in/
-!external/**/[Bb]in/
+!external/**/
 
 # Visual Studio 2015 cache/options directory
 .vs/

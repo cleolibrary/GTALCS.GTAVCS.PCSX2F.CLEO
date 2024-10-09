@@ -1,3 +1,8 @@
+<div align="center">
+    <img src="https://github.com/user-attachments/assets/27b60a5b-63da-444d-ae2c-b8d85df5c3a3"/>
+</div>
+
+
 # CLEO PS2
 
 Version: 2.0.2

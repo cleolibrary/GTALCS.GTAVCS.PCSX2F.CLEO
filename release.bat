@@ -1,0 +1,1 @@
+7z a -tzip ".\cleops2.zip" ".\data\*" -xr!*.map

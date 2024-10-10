@@ -25,7 +25,7 @@ typedef struct {
 #define PMPA_POINTER_IS_IN_POOL(a) PMPA_POINTER_IS_IN_RANGE(a, PMPA_FIRST_VALID_ADDRESS_IN_POOL, master_memory_block_size)
 
 #ifndef MEM_CUSTOM_TOTAL_SIZE
-#define MEM_CUSTOM_TOTAL_SIZE 1000000
+#define MEM_CUSTOM_TOTAL_SIZE 100000
 #endif
 
 static pmpa_memory_block master_memory_block[MEM_CUSTOM_TOTAL_SIZE] = { 0 };
@@ -53,7 +53,7 @@ static void concat_sequential_blocks(pmpa_memory_block *memory_block, bool is_al
 
 static pmpa_memory_block *find_first_block(bool is_allocated, pmpa_memory_int min_size)
 {
-	pmpa_memory_block *memory_block = master_memory_block;
+	pmpa_memory_block *memory_block = PMPA_FIRST_VALID_ADDRESS_IN_POOL;
 	
 	while (PMPA_POINTER_IS_IN_POOL(memory_block + sizeof(pmpa_memory_block))) {
 		/* If we're trying to find an block, then defragment the pool as we go along.
@@ -203,3 +203,23 @@ void operator delete(void* p)
 	FreeMemBlock(p);
 }
 #endif
+
+void* __wrap_malloc(size_t size)
+{
+	return pmpa_malloc(size);
+}
+
+void* __wrap_calloc(size_t n, size_t size)
+{
+	return pmpa_calloc(n, size);
+}
+
+void* __wrap_realloc(void* p, size_t size)
+{
+	return pmpa_realloc(p, size);
+}
+
+void __wrap_free(void* ptr)
+{
+	return pmpa_free(ptr);
+}

@@ -32,17 +32,46 @@ workspace "GTALCS.GTAVCS.PCSX2F.CLEO"
       ")" }
    
    function setbuildpaths_ps2(gamepath, exepath, scriptspath, ps2sdkpath, sourcepath, prj_name)
-      local pbcmd = {}
-      for k,v in pairs(pbcommands) do
-        pbcmd[k] = v
-      end
+      -- local pbcmd = {}
+      -- for k,v in pairs(pbcommands) do
+      --   pbcmd[k] = v
+      -- end
       if (gamepath) then
-         cmdcopy = { "set \"path=" .. gamepath .. scriptspath .. "\"" }
-         pbcmd[2] = "set \"file=../data/" .. scriptspath .. prj_name ..".elf\""
-         table.insert(cmdcopy, pbcmd)
-         buildcommands   { "call " .. ps2sdkpath .. " -C " .. sourcepath, cmdcopy }
-         rebuildcommands { "call " .. ps2sdkpath .. " -C " .. sourcepath .. " clean && " .. ps2sdkpath .. " -C " .. sourcepath, cmdcopy }
-         cleancommands   { "call " .. ps2sdkpath .. " -C " .. sourcepath .. " clean" }
+        buildcommands {"setlocal EnableDelayedExpansion"}
+        rebuildcommands {"setlocal EnableDelayedExpansion"}
+        local pcsx2fpath = os.getenv "PCSX2FDir"
+        if (pcsx2fpath == nil) then
+            buildcommands {"set _PCSX2FDir=" .. gamepath}
+            rebuildcommands {"set _PCSX2FDir=" .. gamepath}
+        else
+            buildcommands {"set _PCSX2FDir=!PCSX2FDir!"}
+            rebuildcommands {"set _PCSX2FDir=!PCSX2FDir!"}
+        end
+        buildcommands {
+        "powershell -ExecutionPolicy Bypass -File \"" .. ps2sdkpath .. "\" -C \"" .. sourcepath .. "\"\r\n" ..
+        "if !errorlevel! neq 0 exit /b !errorlevel!\r\n" ..
+        "if not defined _PCSX2FDir goto :eof\r\n" ..
+        "if not exist !_PCSX2FDir! goto :eof\r\n" ..
+        "if not exist !_PCSX2FDir!/PLUGINS mkdir !_PCSX2FDir!/PLUGINS\r\n" ..
+        "set target=!_PCSX2FDir!/PLUGINS/\r\n" ..
+        "copy /y $(NMakeOutput) \"!target!\"\r\n"
+        }
+        rebuildcommands {
+        "powershell -ExecutionPolicy Bypass -File \"" .. ps2sdkpath .. "\" -C \"" .. sourcepath .. "\" clean\r\n" ..
+        "powershell -ExecutionPolicy Bypass -File \"" .. ps2sdkpath .. "\" -C \"" .. sourcepath .. "\"\r\n" ..
+        "if !errorlevel! neq 0 exit /b !errorlevel!\r\n" ..
+        "if not defined _PCSX2FDir goto :eof\r\n" ..
+        "if not exist !_PCSX2FDir! goto :eof\r\n" ..
+        "if not exist !_PCSX2FDir!/PLUGINS mkdir !_PCSX2FDir!/PLUGINS\r\n" ..
+        "set target=!_PCSX2FDir!/PLUGINS/\r\n" ..
+        "copy /y $(NMakeOutput) \"!target!\"\r\n"
+        }
+        cleancommands {
+        "setlocal EnableDelayedExpansion\r\n" ..
+        "powershell -ExecutionPolicy Bypass -File \"" .. ps2sdkpath .. "\" -C \"" .. sourcepath .. "\" clean\r\n" ..
+        "if !errorlevel! neq 0 exit /b !errorlevel!"
+        }
+         
          debugdir (gamepath)
          if (exepath) then
             debugcommand (gamepath .. exepath)
@@ -50,7 +79,7 @@ workspace "GTALCS.GTAVCS.PCSX2F.CLEO"
             debugdir (gamepath .. (dir or ""))
          end
       end
-      targetdir ("data/" .. scriptspath)
+      targetdir ("data/%{prj.name}/" .. scriptspath)
    end
 
    function add_ps2sdk()
@@ -72,7 +101,7 @@ project "GTALCS.GTAVCS.PCSX2F.CLEO"
    targetname "cleo"
    add_ps2sdk()
    targetextension ".elf"
-   setbuildpaths_ps2("Z:/GitHub/PCSX2-Fork-With-Plugins/bin/", "pcsx2-qtx64-clang.exe", "PLUGINS/", "%{wks.location}/../external/ps2sdk/ee/bin/vsmake", "%{wks.location}/../source/", "cleo")
+   setbuildpaths_ps2("Z:/GitHub/PCSX2-Fork-With-Plugins/bin/", "pcsx2-qtx64-clang.exe", "PLUGINS/", "%{wks.location}/../external/ps2sdk/ee/bin/vsmake.ps1", "%{wks.location}/../source/", "cleo")
    writemakefile_ps2("cleo", "PLUGINS/", "0x05000000", "-l:libstdc++.a -l:libm.a",
    "../includes/pcsx2/memalloc.o", "../includes/pcsx2/log.o", "utils.o", "text.o", "libres.o", "armhook.o", "touch.o", "ui.o", "pattern.o", "core.o", "mutex.o", "strutils.o", "memutils.o", "psplang.o")
    writelinkfile_ps2()

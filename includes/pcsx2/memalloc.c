@@ -28,7 +28,7 @@ typedef struct {
 #define MEM_CUSTOM_TOTAL_SIZE 100000
 #endif
 
-static pmpa_memory_block master_memory_block[MEM_CUSTOM_TOTAL_SIZE] = { 0 };
+static pmpa_memory_block master_memory_block[MEM_CUSTOM_TOTAL_SIZE] = { 1 };
 static pmpa_memory_int   master_memory_block_size = MEM_CUSTOM_TOTAL_SIZE;
 
 /*

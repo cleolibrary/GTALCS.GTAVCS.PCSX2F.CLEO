@@ -3,6 +3,7 @@
 #ifdef __INTELLISENSE__
 #define __STDC__
 #endif
+#include <cstdint>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>

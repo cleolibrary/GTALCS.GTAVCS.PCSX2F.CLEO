@@ -79,7 +79,7 @@ workspace "GTALCS.GTAVCS.PCSX2F.CLEO"
             debugdir (gamepath .. (dir or ""))
          end
       end
-      targetdir ("data/%{prj.name}/" .. scriptspath)
+      targetdir ("data/" .. scriptspath)
    end
 
    function add_ps2sdk()

@@ -18,7 +18,7 @@ ASFLAGS = $(CFLAGS)
 BASE_ADDRESS = %s
 EE_LINKFILE = linkfile
 EE_LIBS += %s
-EE_LDFLAGS = -Wl,--entry=init -Wl,--wrap,malloc -Wl,--wrap,calloc -Wl,--wrap,realloc -Wl,--wrap,free -Wl,--no-relax -Wl,--no-relax -Wl,-Map,../data/%s.map -Wl,'--defsym=BASE_ADDRESS=$(BASE_ADDRESS)'
+EE_LDFLAGS = -Wl,--entry=init -Wl,--wrap,malloc -Wl,--wrap,calloc -Wl,--wrap,realloc -Wl,--wrap,free -Wl,--no-relax -Wl,-Map,../data/%s.map -Wl,'--defsym=BASE_ADDRESS=$(BASE_ADDRESS)'
 
 all: clean main-build
 

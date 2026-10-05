@@ -14,7 +14,8 @@
     "ui.cpp",
     "utils.cpp",
     "module-memory.c",
-    "../includes/pcsx2/log.c"
+    "../external/injector/include/ps2/log.c",
+    "../external/injector/include/ps2/patterns.c"
   ],
   "output": "../data/PLUGINS/cleo.elf"
 }

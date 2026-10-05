@@ -13,7 +13,7 @@
 #include "memutils.h"
 #include "psplang.h"
 
-#include "../includes/pcsx2/memalloc.h"
+#include "../external/injector/include/ps2/memalloc.h"
 
 uint8_t CLEOScripts[1000000] = { 1 };
 

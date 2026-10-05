@@ -6,7 +6,6 @@ workspace "GTALCS.GTAVCS.PCSX2F.CLEO"
    objdir ("build/obj")
    buildlog ("build/log/%{prj.name}.log")
    cppdialect "C++latest"
-   include "makefile.lua"
    
    kind "SharedLib"
    language "C++"
@@ -49,7 +48,8 @@ workspace "GTALCS.GTAVCS.PCSX2F.CLEO"
    end
 
    function add_ps2sdk()
-      includedirs { "external/ps2sdk/ps2sdk/ee" }
+      includedirs { "external/ps2sdk/ps2sdk/ee", "external/injector/include" }
+      files { "external/injector/include/ps2/**.h", "external/injector/include/ps2/**.hpp" }
       files { "source/*.h", "source/*.c", "source/*.cpp", "source/makefile", "source/module.json" }
    end
       
@@ -68,6 +68,3 @@ project "GTALCS.GTAVCS.PCSX2F.CLEO"
    add_ps2sdk()
    targetextension ".elf"
    setbuildpaths_ps2("Z:/GitHub/PCSX2-Fork-With-Plugins/bin/", "pcsx2-qtx64-clang.exe", "PLUGINS/", "%{wks.location}/../external/ps2sdk/ee/bin/vsmake.ps1", "%{wks.location}/../source/", "cleo")
-   writemakefile_ps2("cleo", "PLUGINS/", "0x05000000", "-l:libstdc++.a -l:libm.a",
-   "../includes/pcsx2/memalloc.o", "../includes/pcsx2/log.o", "utils.o", "text.o", "libres.o", "armhook.o", "touch.o", "ui.o", "pattern.o", "core.o", "mutex.o", "strutils.o", "memutils.o", "psplang.o")
-   writelinkfile_ps2()

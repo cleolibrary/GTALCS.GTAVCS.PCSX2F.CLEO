@@ -2,7 +2,7 @@
 #include "mutex.h"
 #include "core.h"
 
-#include "../includes/pcsx2/log.h"
+#include "../external/injector/include/ps2/log.h"
 
 namespace utils
 {

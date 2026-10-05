@@ -2,7 +2,7 @@
  * private heap. The old pool returned data at a five-byte header offset,
  * which traps on the EE interpreter when C++ constructors access objects. */
 #include <stdlib.h>
-#include "../includes/pcsx2/memalloc.h"
+#include "../external/injector/include/ps2/memalloc.h"
 #undef malloc
 #undef calloc
 #undef realloc

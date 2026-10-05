@@ -1,10 +1,10 @@
 #include "core.h"
 #include "utils.h"
 
-#include "../includes/pcsx2/pcsx2f_api.h"
-#include "../includes/pcsx2/nanoprintf.h"
-#include "../includes/pcsx2/log.h"
-#include "../includes/pcsx2/memalloc.h"
+#include "../external/injector/include/ps2/pcsx2f_api.h"
+#include "../external/injector/include/ps2/nanoprintf.h"
+#include "../external/injector/include/ps2/log.h"
+#include "../external/injector/include/ps2/memalloc.h"
 
 int CompatibleCRCList[] = {
     (int)0x4F32A11F, (int)0xB3AD1EA4, // vcs

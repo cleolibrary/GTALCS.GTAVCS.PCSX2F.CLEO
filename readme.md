@@ -25,14 +25,29 @@ You are using this application at your own risk, you agree to take full responsi
 
 ## Requirements
 
+This build uses the relocatable module ABI and requires the updated fork/injector.
+It receives a dynamic base, private stack, and aligned heap from the SDK runtime.
+Older fixed-address `cleo.elf` files must be rebuilt. Scripts and game patches
+retain their existing formats and behavior.
+
+On Windows, initialize submodules and build with:
+
+```powershell
+./external/ps2sdk/plugins/build-module.ps1 -Project source/module.json
+```
+
+Output: `data/PLUGINS/cleo.elf`. Premake/Visual Studio invoke the same builder.
+The module allocation bridge preserves CLEO's API while correcting unaligned
+pointers for C++ objects and interpreter execution.
+
 - Download and extract [PCSX2 Fork With Plugins](https://github.com/ASI-Factory/PCSX2-Fork-With-Plugins/releases/tag/latest).
 - Download and extract plugin archive to the root directory, where exe is located.
 - Launch the game.
 
 ## Supported game versions
 
-- LCS SLUS-21423 / SLES-54135 (crc: 4F32A11F / B3AD1EA4)
-- VCS SLUS-21590 / SLES-54622 (crc: 7EA439F5 / D693D4CF)
+- LCS SLUS-21423 / SLES-54135 (crc: 7EA439F5 / D693D4CF)
+- VCS SLUS-21590 / SLES-54622 (crc: 4F32A11F / B3AD1EA4)
 
 ## Scripts
 

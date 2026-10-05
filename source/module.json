@@ -1,0 +1,20 @@
+{
+  "sources": [
+    "armhook.cpp",
+    "core.cpp",
+    "libres.cpp",
+    "main.cpp",
+    "memutils.cpp",
+    "mutex.cpp",
+    "pattern.cpp",
+    "psplang.cpp",
+    "strutils.cpp",
+    "text.cpp",
+    "touch.cpp",
+    "ui.cpp",
+    "utils.cpp",
+    "module-memory.c",
+    "../includes/pcsx2/log.c"
+  ],
+  "output": "../data/PLUGINS/cleo.elf"
+}

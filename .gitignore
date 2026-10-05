@@ -321,3 +321,4 @@ __pycache__/
 # !tools/packages.config
 
 !source/*.PPSSPP.*/**/*.exp
+*.elf.objects/

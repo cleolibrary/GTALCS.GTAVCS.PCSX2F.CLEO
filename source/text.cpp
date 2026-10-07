@@ -1,3 +1,4 @@
+#include <new>
 #include "text.h"
 #include "core.h"
 #include "utils.h"
@@ -36,7 +37,7 @@ namespace text
 		for (int32_t i = 0; i < 108; i++)
 		{
 			char str[16];
-			sprintf(str, CSI_ENTRY, i);
+			snprintf(str, sizeof(str), CSI_ENTRY, int(i));
 			add_gxt_entry(str, "-");
 		}
 	}
@@ -44,9 +45,16 @@ namespace text
 	void add_gxt_entry(std::string name, std::string str)
 	{
 		str = psplang::localize(str);
-		uint16_t *w = new uint16_t[str.length() + 1];
 		uint32_t hash = str_hash(name);
+		// Bounded table: FXT text shares the 1 MiB module heap.
+		if (gxt_entries.size() >= 2048 && gxt_entries.find(hash) == gxt_entries.end()) return;
+		uint16_t *w = new (std::nothrow) uint16_t[str.length() + 1];
+		if (!w) return;
 		wstr_from_ansi(w, str.c_str());
+		// FXT files may redefine a key; release the replaced text.
+		std::map<uint32_t, uint16_t *>::iterator old = gxt_entries.find(hash);
+		if (old != gxt_entries.end())
+			delete[] old->second;
 		gxt_entries[hash] = w;
 	}
 
@@ -55,7 +63,7 @@ namespace text
 		if (gxt_entries.size())
 		{
 			char name[64];
-			sprintf(name, CSI_ENTRY, num);
+			snprintf(name, sizeof(name), CSI_ENTRY, int(num));
 			uint32_t hash = str_hash(name);
 			if (gxt_entries.find(hash) != gxt_entries.end())
 			{

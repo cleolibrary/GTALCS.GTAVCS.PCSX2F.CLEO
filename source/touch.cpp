@@ -69,12 +69,12 @@ namespace touch
 
 	bool psp_control_pressed(ePspControl control)
 	{
-		return control < CTRL_SIZE && ctrl_state[control] && ctrl_disabled[control] <= utils::get_tick_count();
+		return uint32_t(control) < CTRL_SIZE && ctrl_state[control] && ctrl_disabled[control] <= utils::get_tick_count();
 	}
 
 	bool psp_control_pressed_timed(ePspControl control, uint32_t mintime)
 	{
-		return control < CTRL_SIZE && ctrl_state[control] && ctrl_disabled[control] <= utils::get_tick_count() && ctrl_time[control] + mintime <= utils::get_tick_count();
+		return uint32_t(control) < CTRL_SIZE && ctrl_state[control] && ctrl_disabled[control] <= utils::get_tick_count() && ctrl_time[control] + mintime <= utils::get_tick_count();
 	}
 
 	void psp_control_disable(ePspControl control, uint32_t mintime)

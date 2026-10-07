@@ -1,4 +1,8 @@
+#include "ScriptMemory.hpp"
+#include <new>
 #include "core.h"
+#include "ScriptSave.hpp"
+#include "PackedScripts.hpp"
 #include "core_asm.h"
 #include "core_menu.h"
 #include "armhook.h"
@@ -97,12 +101,21 @@ namespace core
 		uint32_t code_size;
 		uint32_t offset; // start ip for script vm, based on ScriptSpace overrun
 		bool wait_passed;
-		uint32_t context[32];
+		bool invalid = false;
+		uint32_t context[32]{};
 
 		t_script() : handle(NULL), code(NULL), offset(0) {}
 	};
 
-	std::vector<t_script *> scripts;
+	// The VM and the save filter share a bounded set of custom scripts.
+	struct ScriptList {
+		t_script* entries[128]{};
+		uint32_t count=0;
+		uint32_t size() const { return count; }
+		void clear() { count=0; }
+		t_script*& operator[](uint32_t i) { return entries[i]; }
+		void push_back(t_script* script) { entries[count++]=script; }
+	} scripts;
 
 	t_script *get_script_using_handle(uint8_t *handle)
 	{
@@ -165,6 +178,45 @@ namespace core
 	// @CTheScripts::StartNewScript
 	typedef ptr (*fn_CTheScripts__StartNewScript)(uint32_t);
 	fn_CTheScripts__StartNewScript CTheScripts__StartNewScript;
+
+	// CTheScripts::StartNewScript takes the head of the idle-script list
+	// without checking it: with every native thread busy it dereferences NULL.
+	// The list address differs per build, so it is decoded from the function's
+	// own "lui a1 / addiu a1" argument for RemoveScriptFromList(script,
+	// &pIdleScripts) and must sit near pActiveScripts (within 0x200 bytes).
+	uint32_t *CTheScripts__pIdleScripts;
+	void find_idle_scripts()
+	{
+		CTheScripts__pIdleScripts = NULL;
+		const uint32_t *code = cast<const uint32_t *>(CTheScripts__StartNewScript);
+		if (!code || !CTheScripts__pActiveScripts) return;
+		int32_t high = -1;
+		for (int i = 0; i < 12; i++)
+		{
+			const uint32_t word = code[i];
+			if ((word >> 26) == 3 || (word >> 26) == 2) break; // first call: argument is set
+			if ((word & 0xFFFF0000u) == 0x3C050000u) high = int32_t(word & 0xFFFF); // lui a1
+			else if ((word & 0xFFFF0000u) == 0x24A50000u && high >= 0) // addiu a1, a1
+			{
+				const uint32_t address = (uint32_t(high) << 16) + uint32_t(int32_t(int16_t(word)));
+				const uint32_t active = cast<uint32_t>(CTheScripts__pActiveScripts);
+				if ((address > active ? address - active : active - address) <= 0x200 && !(address & 3))
+					CTheScripts__pIdleScripts = cast<uint32_t *>(address);
+				break;
+			}
+		}
+		utils::log("CTheScripts__pIdleScripts: 0x%08X", CTheScripts__pIdleScripts);
+	}
+	ptr start_new_script(uint32_t offset)
+	{
+		if (!CTheScripts__pIdleScripts || !*CTheScripts__pIdleScripts)
+		{
+			utils::log("no free script thread for ip 0x%08X", offset);
+			return NULL;
+		}
+		return CTheScripts__StartNewScript(offset);
+	}
+
 
 	// @CRunningScript::GetPointerToScriptVariable SA
 	typedef ptr (*fn_SA_CRunningScript__GetPointerToScriptVariable)(ptr thiz, uint8_t);
@@ -338,7 +390,7 @@ namespace core
 		if (CTextHandle && !psplang::is_init())
 			psplang::init();
 
-		uint16_t *e = text::get_gxt_entry(name);
+		uint16_t *e = name ? text::get_gxt_entry(name) : NULL;
 		return e ? e : CText__Get_(thiz, name);
 	}
 
@@ -550,7 +602,7 @@ namespace core
 			armhook::hook_mips_func(_CText__Get, 8, CText__Get, &CText__Get_);
 			armhook::hook_mips_func(_CPad__UpdatePads, 8, CPad__UpdatePads, &CPad__UpdatePads_);
 		}
-		
+		find_idle_scripts();
 		return true;
 	}
 
@@ -600,10 +652,18 @@ namespace core
 		utils::log("initialize success");
 	}
 
+	// The module heap is 1 MiB (MODULE_HEAP_SIZE) and the packed archive can
+	// hold almost as much, so copies of packed files share fixed budgets and
+	// files beyond them are skipped with a log line instead of exhausting the
+	// heap that the UI, text table and strings still allocate from later.
+	constexpr uint32_t scriptCodeBudget = 384 * 1024, textBudget = 48 * 1024;
+	uint32_t scriptCodeBytes, textBytes;
+
 	// script code buf
 	// copies script to the buf and adds it to the list
-	void preload_script(std::string fname, const uint8_t *code, uint32_t code_size, bool is_invokable, uint32_t invokable_id)
+	bool preload_script(std::string fname, const uint8_t *code, uint32_t code_size, bool is_invokable, uint32_t invokable_id)
 	{
+		if (!code || !code_size || code_size>UINT32_MAX-8 || scripts.size()==128) return false;
 		// copy script to the script code buf
 		if (game == GTALCS || game == GTAVCS) // has to be fixed in SB
 		{
@@ -619,21 +679,32 @@ namespace core
 			}
 		}
 		uint8_t *script_code;
-		script_code = new uint8_t[code_size + 8];		
+		if (!code_size) return false;
+		if (code_size + 8 > scriptCodeBudget - scriptCodeBytes)
+		{
+			utils::log("Script '%s' skipped: script storage budget (%u bytes) is full", fname.c_str(), scriptCodeBudget);
+			return false;
+		}
+		script_code = new (std::nothrow) uint8_t[code_size + 8];
+		if (!script_code) { utils::log("Insufficient module storage for script '%s'",fname.c_str());return false; }
 		memcpy(script_code, code, code_size);
+		memset(script_code+code_size,0,8);
 
 		// fill script desc and add it to the scripts arr
-		t_script *script = new t_script();
+		t_script *script = new (std::nothrow) t_script();
+		if (!script) { delete[] script_code;return false; }
 		script->invokable_id = is_invokable ? invokable_id : -1;
 		script->name = fname;
 		script->code = script_code;
 		script->code_size = code_size;
+		scriptCodeBytes += code_size + 8;
 		script->offset = game == GTASA ? cast<uint32_t>(script->code) : cast<uint32_t>(script->code) - cast<uint32_t>(CTheScripts__ScriptSpace);
 		scripts.push_back(script);
 
 		// set invokable script name for menu
 		if (is_invokable)
 			text::set_gxt_invokable_script_name(invokable_id, fname);
+		return true;
 	}
 
 	// preloads scripts at start
@@ -646,6 +717,8 @@ namespace core
 			delete scripts[i];
 		}
 		scripts.clear();
+		scriptCodeBytes = 0;
+		textBytes = 0;
 		// init gxt entries
 		text::init();
 		// delete menu ui
@@ -663,65 +736,27 @@ namespace core
 		// check all found files
 		uint32_t invokable_count = 0;
 
-		uintptr_t script_offset = (uintptr_t)(&CLEOScripts);
-		do
-		{
-			std::string fname = (const char*)script_offset;
-			size_t script_name_len = fname.size() + 1;
-			script_offset += script_name_len;
-			uint32_t script_size = *(uint32_t*)(script_offset);
-			script_offset += sizeof(uint32_t);
-
-			if (!script_size)
-				break;
-
-			if (script_offset + script_size > ((uintptr_t)(&CLEOScripts) + sizeof(CLEOScripts)))
-				break;
-
-			std::string root = strutils::get_parent_path(fname, true);
-			fname = strutils::get_filename(fname);
-
-			if ((game == GTALCS && root == "lcs") || (game == GTAVCS && root == "vcs") || root == "")
-			{
-				std::string ext = strutils::get_ext(fname);
-				bool is_invokable = ext == "csi";
-				if (ext == "csa" || is_invokable)
-				{
-					// preload script
-					uint32_t code_size = script_size;
-					uint8_t* code = (uint8_t*)script_offset;
-					if (!code || !code_size)
-					{
-						utils::log("can't read script '%s'", fname.c_str());
-						continue;
-					}
-					preload_script(fname, code, code_size, is_invokable, invokable_count);
-					if (is_invokable)
-						invokable_count++;
-					utils::log("script '%s' with size %d preloaded", fname.c_str(), code_size);
-				}
-				else if (ext == "fxt")
-				{
-					// load fxt
-					uint32_t size = script_size;
-					LPSTR text_raw = cast<LPSTR>(script_offset);
-					if (!text_raw || !size)
-					{
-						utils::log("can't read fxt '%s'", fname.c_str());
-						continue;
-					}
-					LPSTR text = cast<LPSTR>(malloc(size + 1));
-					memcpy(text, text_raw, size);
-					text[size] = 0;
-					text::load_gxt_entries_from_text(text, size);
-					free(text);
-					free(text_raw);
-					utils::log("fxt '%s' loaded", fname.c_str());
-				}
+		cleo::PackedScripts archive(CLEOScripts,sizeof(CLEOScripts));
+		cleo::PackedScript file;
+		while (archive.next(file)) {
+			std::string path=file.name;
+			std::string root=strutils::get_parent_path(path,true);
+			if (!root.empty() && root!=(game==GTALCS ? "lcs" : "vcs")) continue;
+			std::string name=strutils::get_filename(path);
+			std::string extension=strutils::get_ext(name);
+			if (extension=="csa" || extension=="csi") {
+				bool invokable=extension=="csi";
+				if (preload_script(name,file.data,file.size,invokable,invokable_count) && invokable) ++invokable_count;
+			} else if (extension=="fxt") {
+				if (file.size>textBudget-textBytes) { utils::log("FXT '%s' skipped: text budget (%u bytes) is full",name.c_str(),textBudget);continue; }
+				textBytes+=file.size;
+				char* text=cast<char*>(malloc(file.size+1));
+				if (!text) { utils::log("Insufficient module storage for FXT");continue; }
+				memcpy(text,file.data,file.size);text[file.size]=0;
+				text::load_gxt_entries_from_text(text,file.size);
+				free(text); // The archive remains owned by this injected module.
 			}
-			script_offset += script_size;
-
-		} while (true);
+		}
 
 		utils::log("total preloaded scripts %d", scripts.size());
 	}
@@ -738,7 +773,7 @@ namespace core
 			if (script->invokable_id == -1)
 			{
 				utils::log("starting script '%s'", script->name.c_str());
-				script->handle = CTheScripts__StartNewScript(script->offset);
+				script->handle = start_new_script(script->offset);
 				script->wait_passed = false;
 			} else // invokable scripts start by special opcode and don't require wait
 			{
@@ -749,67 +784,17 @@ namespace core
 		utils::log("launch_scripts success");
 	}
 
-	void save_scripts(uint32_t a, uint32_t b)
+	void save_scripts(uint32_t a,uint32_t b)
 	{
-		utils::log("save_scripts start");
-
-		struct t_linked_script
-		{
-			t_linked_script *next;
-			t_linked_script *prev;
-			char *get_name()
-			{
-				return cast<char *>(cast<ptr>(this) + select(8, 8, 8, 16, 0x20F));
-			}
-		};
-
-		ptr game_active_scripts = CTheScripts__pActiveScripts;
-
-		t_linked_script *curActiveScript, *firstActiveScript = NULL;
-
-		curActiveScript = *cast<t_linked_script **>(game_active_scripts);
-		while (curActiveScript)
-		{
-			bool orig = get_script_using_handle(cast<ptr>(curActiveScript)) == NULL;
-			if (orig)
-			{
-				if (!firstActiveScript)
-				{
-					firstActiveScript = curActiveScript;
-					*cast<t_linked_script **>(game_active_scripts) = firstActiveScript;
-				}
-			} else
-			{
-				utils::log("skipping '%.8s'", curActiveScript->get_name());
-				if (curActiveScript->prev)
-					curActiveScript->prev->next = curActiveScript->next;
-				if (curActiveScript->next)
-					curActiveScript->next->prev = curActiveScript->prev;
-			}
-			curActiveScript = curActiveScript->next;
-		}
-
-		if (game == GTASA)
-			SA_CTheScripts__Save_();
-		else
-			VC3LCS_CTheScripts__Save_(a, b);
-
-		// find last active
-		curActiveScript = *cast<t_linked_script **>(game_active_scripts);
-		while (curActiveScript->next)
-			curActiveScript = curActiveScript->next;
-
-		for (int32_t i = 0; i < scripts.size(); i++)
-		{
-			if (!scripts[i]->handle)
-				continue;
-			curActiveScript->next = cast<t_linked_script *>(scripts[i]->handle);
-			curActiveScript->next->prev = curActiveScript;
-			curActiveScript->next->next = NULL;
-			curActiveScript = curActiveScript->next;
-		}
-
-		utils::log("save_scripts success");
+		struct ScriptNode { ScriptNode* next; ScriptNode* prev; };
+		auto& head=*cast<ScriptNode**>(CTheScripts__pActiveScripts);
+		cleo::ScriptSave<ScriptNode> nativeScripts(head,[](ScriptNode* node) {
+			return get_script_using_handle(cast<ptr>(node))!=nullptr;
+		});
+		if (!nativeScripts) { utils::log("Save rejected: malformed or reentrant script list");return; }
+		if (game==GTASA) SA_CTheScripts__Save_();
+		else VC3LCS_CTheScripts__Save_(a,b);
+		// RAII restores the original head, links and execution order.
 	}
 
 	ptr get_real_code_ptr(uint32_t ip)
@@ -828,9 +813,9 @@ namespace core
 	{
 		if (t_script *script = get_script_using_handle(handle))
 		{
-			int32_t offset_signed = *cast<int32_t *>(&offset);
-			offset = (offset_signed >= 0) ? (cast<uint32_t>(script->code) + offset_signed) : (cast<uint32_t>(script->code) - offset_signed);
-			return cast<ptr>(offset);
+			const int32_t signedOffset=cleo::readUnaligned<int32_t>(&offset);
+			const auto* target=cleo::ScriptMemory{script->code,script->code_size}.label(signedOffset);
+			return const_cast<ptr>(target);
 		}
 		return NULL;
 	}
@@ -842,13 +827,18 @@ namespace core
 		str.clear();
 		if (game != GTAVCS)
 		{
-			str.append(cast<const char *>(code));
+			if (auto* script=get_script_using_handle(handle))
+				if (!cleo::ScriptMemory{script->code,script->code_size}.contains(code,8)) return false;
+			size_t length=0;while (length<8 && code[length]) ++length;
+			str.append(cast<const char *>(code),length);
 			*p_ip += 8;
 		} else
 		{
-			if (*code != 0x0A)
-				return false;
-			str.append(cast<const char *>(code + 1));
+			auto* script=get_script_using_handle(handle);
+			if (!script || !cleo::ScriptMemory{script->code,script->code_size}.contains(code,1) || *code != 0x0A) return false;
+			const size_t length=cleo::ScriptMemory{script->code,script->code_size}.stringLength(code+1);
+			if (length==SIZE_MAX) return false;
+			str.append(cast<const char *>(code+1),length);
 			*p_ip += str.size() + 2;
 		}
 		return true;
@@ -858,6 +848,9 @@ namespace core
 	{
 		uint32_t *p_ip = cast<uint32_t *>(handle + select(0x10, 0x10, 0x14, 0x18, 0x10));
 		ptr code = get_real_code_ptr(*p_ip);
+		auto* script=get_script_using_handle(handle);
+		if (!script || !cleo::ScriptMemory{script->code,script->code_size}.contains(code,2)) return false;
+		if (!cleo::ScriptMemory{script->code,script->code_size}.contains(code,2+code[1])) return false;
 		if (*code != select(0x0E, 0x0E, 0x0E, 0x6B, 0x6B))
 			return false;
 		str.clear();
@@ -875,12 +868,12 @@ namespace core
 		bool handle_found = false;
 		bool wait_passed = false;
 		uint8_t *code = NULL;
-		std::string name;
+		const char* name = "native";
 		t_script *script = get_script_using_handle(handle);
 		if (script)
 		{
 			code = script->code;
-			name = script->name;
+			name = script->name.c_str();
 			wait_passed = script->wait_passed;
 			handle_found = true;
 		}
@@ -915,15 +908,23 @@ namespace core
 		}
 
 		bool result;
+		unsigned budget = 4096;
 		do
 		{
 			ptr ip = getfield<ptr>(handle, select(0x10, 0x10, 0x14, 0x18, 0x10)); // ip, for SA is absolute ptr
 			//utils::log("%s %08X %08X %08X", __FUNCTION__, handle, ip + cast<uint32_t>(CTheScripts__ScriptSpace), CTheScripts__ScriptSpace);
 			if (game != GTASA) ip += cast<uint32_t>(CTheScripts__ScriptSpace);
 
+			if (script && (script->invalid || !cleo::ScriptMemory{code,script->code_size}.contains(ip,2))) {
+				script->invalid = true;
+				setfield<uint32_t>(handle,select(0x7C,0x7C,0xEC,0x210,0x200),0xFFFFFFFFu);
+				utils::log("Stopped invalid script '%s'",name);
+				return;
+			}
+
 			bool cond = getfield<uint8_t>(handle, select(0x78, 0x79, 0xE5, 0x20D, 0x209)) != 0; // thread if cond
 
-			uint16_t op = *cast<uint16_t *>(ip);
+			uint16_t op = cleo::readUnaligned<uint16_t>(ip);
 
 			if (handle_found)
 			{
@@ -931,24 +932,30 @@ namespace core
 
 				if (op == OP_J || op == OP_JT || op == OP_JF || op == OP_CALL)
 				{
+					// Branch operands have a type byte followed by an unaligned int32.
+					if (!cleo::ScriptMemory{code,script->code_size}.contains(ip,7)) { script->invalid=true;return; }
 					// move to opcode param
 					ip += 2;
 					// check param type
 					if (!(*ip == 1 || ((game == GTALCS || game == GTAVCS) && *ip == 6)))
 					{
-						utils::log("wrong param type in '%s' at %d, terminating", name.c_str(), ip - code);
-						exit(1);
+						utils::log("wrong param type in '%s' at %d, terminating", name, ip - code);
+						script->invalid=true;return;
 					}
 					ip++;
 					// read offset as int
-					int32_t offset_signed = *cast<int32_t *>(ip);
+					int32_t offset_signed = cleo::readUnaligned<int32_t>(ip);
 					ip += 4;
 					// calc offset from ScriptSpace
-					uint32_t offset = (offset_signed >= 0) ? (cast<uint32_t>(code) + offset_signed) : (cast<uint32_t>(code) - offset_signed);
+					const auto target=cleo::ScriptMemory{code,script->code_size}.label(offset_signed);
+					if (!target) { script->invalid=true;return; }
+					uint32_t offset=cast<uint32_t>(target);
 					// OP_CALL saves thread ip on call stack
 					if (op == OP_CALL)
 					{
-						//utils::log("OP_CALL");
+						// Do not let a malformed script overwrite locals through its return stack.
+						constexpr unsigned capacity=16;
+						if (getfield<uint16_t>(handle,select(0x2C,0x2C,0x38,0x5C,0x204))>=capacity) { script->invalid=true;return; }
 						uint16_t si = getfield<uint16_t>(handle, select(0x2C, 0x2C, 0x38, 0x5C, 0x204));
 						setfield<uint16_t>(handle, select(0x2C, 0x2C, 0x38, 0x5C, 0x204), si + 1);
 						ptr vc3_ip = ip - cast<uint32_t>(CTheScripts__ScriptSpace);
@@ -965,7 +972,9 @@ namespace core
 				} else
 				if (op == OP_RET) // lcs uses it for ret from funcs as well, so let's replace it
 				{					
-					uint16_t si = getfield<uint16_t>(handle, select(0x2C, 0x2C, 0x38, 0x5C, 0x204)) - 1;
+					uint16_t depth=getfield<uint16_t>(handle,select(0x2C,0x2C,0x38,0x5C,0x204));
+					if (!depth || depth>16) { script->invalid=true;return; }
+					uint16_t si=depth-1;
 					setfield<ptr>(handle, select(0x10, 0x10, 0x14, 0x18, 0x10),
 							getfield<ptr>(handle, select(0x14, 0x14, 0x18, 0x1C, 0x14) + si * sizeof(uint32_t)));
 					setfield<uint16_t>(handle, select(0x2C, 0x2C, 0x38, 0x5C, 0x204), si);
@@ -975,7 +984,7 @@ namespace core
 				if (op == OP_ENDTHREAD || op == OP_ENDCUSTOMTHREAD)
 				{
 					// replacement for thread end opcodes
-					utils::log("terminating script '%s'", name.c_str());
+					utils::log("terminating script '%s'", name);
 					setfield<uint32_t>(handle, select(0x7C, 0x7C, 0xEC, 0x210, 0x200), 0xFFFFFFFF); // wait time
 					result = true;
 				} else
@@ -994,7 +1003,7 @@ namespace core
 			} else
 				result = CRunningScript__ProcessOneCommand_(handle);
 
-		} while (!result);
+		} while (!result && (!script || --budget));
 	}
 
 	bool custom_opcode(t_script &script, uint16_t op)
@@ -1067,7 +1076,7 @@ namespace core
 			CRunningScript__CollectParameters(script.handle, 2);
 			uint32_t reg = ScriptParams[0];
 			uint32_t val = ScriptParams[1];
-			script.context[reg] = val;
+			if (reg < 32) script.context[reg] = val;
 			return true;
 		}
 		case OP_CONTEXT_GET_REG:
@@ -1076,7 +1085,7 @@ namespace core
 			uint32_t *v = cast<uint32_t *>(CRunningScript__GetPointerToScriptVariable(script.handle, 0));
 			CRunningScript__CollectParameters(script.handle, 1);
 			uint32_t reg = ScriptParams[0];
-			*v = script.context[reg];
+			*v = reg < 32 ? script.context[reg] : 0;
 			return true;
 		}
 		case OP_GET_PLATFORM:
@@ -1111,7 +1120,10 @@ namespace core
 			if (correct_ib)
 				addr += image_base;
 			*v = 0;
-			memcpy(v, cast<const void *>(addr), size);
+			// The destination is one script variable; unmapped reads would fault the EE.
+			if (size > sizeof(*v)) size = sizeof(*v);
+			if (memutils::mem_is_readable(cast<const void *>(addr), size))
+				memcpy(v, cast<const void *>(addr), size);
 			return true;
 		}
 		case OP_WRITE_MEM:
@@ -1125,6 +1137,7 @@ namespace core
 			uint32_t protect = ScriptParams[4];
 			if (correct_ib)
 				addr += image_base;
+			if (size > sizeof(val)) size = sizeof(val); // the source is one 32-bit value
 			memutils::mem_write_arr(cast<uint8_t *>(addr), cast<uint8_t *>(&val), size, protect);
 			return true;
 		}
@@ -1147,7 +1160,8 @@ namespace core
 			uint32_t *ver = cast<uint32_t *>(CRunningScript__GetPointerToScriptVariable(script.handle, 0));
 			uint32_t *ver_code = cast<uint32_t *>(CRunningScript__GetPointerToScriptVariable(script.handle, 0));
 			*id = 0;
-			sscanf(package_name.c_str() + 4, "%d", id);			
+			if (package_name.size() > 4)
+				sscanf(package_name.c_str() + 4, "%lu", id);
 			*ver = strutils::str_hash(package_version_name);
 			*ver_code = package_version_code;
 			return true;
@@ -1228,7 +1242,7 @@ namespace core
 				if (!read_str_8byte(script.handle, str))
 				{
 					utils::log("func call param type has to be 8byte string");
-					exit(1);
+					script.invalid=true;return true;
 				}
 				str = strutils::str_to_lower(str);
 
@@ -1272,7 +1286,7 @@ namespace core
 				} else
 				{
 					utils::log("func call has unknown param type '%s'", str.c_str());
-					exit(1);
+					script.invalid=true;return true;
 				}
 
 				// if this is a func param then put it into one of the func param arrays
@@ -1282,7 +1296,7 @@ namespace core
 					if (params_i_count + params_f_count + params_a_count == 32)
 					{
 						utils::log("func call has more than 32 params");
-						exit(1);
+						script.invalid=true;return true;
 					}
 					if (pt == ptInt)
 					{
@@ -1409,8 +1423,8 @@ namespace core
 						if (script->handle == NULL)
 						{
 							utils::log("starting invokable script '%s'", script->name.c_str());
-							script->handle = CTheScripts__StartNewScript(script->offset);
-							*v = 0;
+							script->handle = start_new_script(script->offset);
+							*v = script->handle ? 0 : -1;
 							return true;
 						}
 						// if script started before and already finished

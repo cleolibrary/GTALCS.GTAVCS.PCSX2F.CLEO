@@ -5,6 +5,8 @@
 namespace memutils
 {
 	void mem_write_arr(uint8_t *addr, uint8_t *arr, uint32_t size, bool protect = true);
+	// true when [addr, addr + size) lies in mapped EE main RAM
+	bool mem_is_readable(const void *addr, uint32_t size);
 
 	// read addr from mips jmp/call
 	ptr mem_read_mips_jmp(uint8_t *addr);

@@ -17,5 +17,6 @@
     "../external/injector/include/ps2/log.c",
     "../external/injector/include/ps2/patterns.c"
   ],
-  "output": "../data/PLUGINS/cleo.elf"
+  "output": "../data/PLUGINS/cleo.elf",
+  "cxx_flags": ["-ffp-contract=off"]
 }

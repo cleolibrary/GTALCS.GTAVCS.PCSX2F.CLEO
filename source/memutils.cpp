@@ -5,13 +5,21 @@
 
 namespace memutils
 {
+	// Script supplied addresses: 32 MiB of EE main RAM, nothing that would fault.
+	bool mem_is_readable(const void *addr, uint32_t size)
+	{
+		const uint32_t address = (uint32_t)(uintptr_t)addr;
+		return size && size <= 0x02000000u && address <= 0x02000000u - size;
+	}
+
 	void mem_write_arr(uint8_t *addr, uint8_t *arr, uint32_t size, bool protect)
 	{
         (void)protect;
         if (!size) return;
         guest_hooks::initialize();
         const uintptr_t address = (uintptr_t)addr;
-        guest_hooks::require(pcsx2_hook_guest_range((uint32_t)address, size), "write range");
+        // A bad script address is ignored rather than stopping the game.
+        if (!mem_is_readable(addr, size)) return;
         memmove(addr, arr, size);
         uint32_t first = (uint32_t)address & ~3u;
         uint32_t last = ((uint32_t)address + size + 3u) & ~3u;

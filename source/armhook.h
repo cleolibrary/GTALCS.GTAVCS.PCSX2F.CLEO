@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common.h"
+#include "guest-hooks.h"
 
 namespace armhook
 {
@@ -12,7 +13,7 @@ namespace armhook
 	template <typename T1, typename T2>
 	void replace_mips_call(T1 addr, T2 func_to)
 	{
-		replace_mips_call(cast<ptr>(addr), cast<ptr>(func_to));
+		replace_mips_call(cast<ptr>(addr), guest_hooks::bridge(func_to,PCSX2_GAME_ABI_CALLBACK));
 	}
 	// common hook proc
 	void hook_mips_func(ptr func, uint32_t startSize, ptr func_to, ptr *func_orig);
@@ -20,10 +21,9 @@ namespace armhook
 	template <typename T>
 	void hook_mips_func(T func, uint32_t startSize, T func_to, T *func_orig)
 	{
-		hook_mips_func(cast<ptr>(func),
-					   startSize,
-					   cast<ptr>(func_to),
-					   cast<ptr *>(func_orig));
+		guest_hooks::hook_function(cast<ptr>(func),startSize,
+			guest_hooks::bridge(func_to,PCSX2_GAME_ABI_CALLBACK),cast<ptr*>(func_orig),
+			[](ptr target)->ptr { return guest_hooks::bridge(cast<T>(target),PCSX2_GAME_ABI_CALL); });
 	}
 	// common find func calls
 	std::vector<ptr> find_mips_func_calls(ptr func);
@@ -32,6 +32,17 @@ namespace armhook
 	std::vector<ptr> find_mips_func_calls(T func)
 	{
 		return find_mips_func_calls(cast<ptr>(func));
+	}
+	// Leave the renderer entry available to the widescreen drawing hooks.
+	template<class T>
+	void hook_mips_calls(T func,T callback,T* original)
+	{
+		auto calls=find_mips_func_calls(func);
+		// Without callers the CLEO menu stays hidden; the game keeps running.
+		if (!original || calls.empty()) return;
+		ptr target=guest_hooks::bridge(callback,PCSX2_GAME_ABI_CALLBACK);
+		*original=cast<T>(guest_hooks::bridge(func,PCSX2_GAME_ABI_CALL));
+		for (ptr address:calls) replace_mips_call(address,target);
 	}
 	// common find func calls in another func
 	std::vector<ptr> find_mips_func_calls_in_func(ptr func, ptr func_in);

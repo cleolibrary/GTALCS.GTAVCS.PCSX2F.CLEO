@@ -101,42 +101,11 @@ namespace ui
 		float trans_x(float x) { return x * 480.0; }
 		float trans_y(float y) { return y * 272.0; }
 
-		void _draw_poly(float topleftx, float toplefty, float toprightx, float toprighty,
-					  float bottomleftx, float bottomlefty, float bottomrightx, float bottomrighty, uint8_t *rgba)
+		void _draw_poly(float topleftx,float toplefty,float toprightx,float toprighty,
+			float bottomleftx,float bottomlefty,float bottomrightx,float bottomrighty,uint8_t* rgba)
 		{
-			//CSprite2d__Draw2DPolygon(trans_x(topleftx), trans_y(toplefty), trans_x(toprightx), trans_y(toprighty),
-			//						 trans_x(bottomleftx), trans_y(bottomlefty), trans_x(bottomrightx), trans_y(bottomrighty), rgba);
-
-			int a0 = (int)rgba;
-			float f12 = trans_x(topleftx);
-			float f13 = trans_y(toplefty);
-			float f14 = trans_x(toprightx);
-			float f15 = trans_y(toprighty);
-			float f16 = trans_x(bottomleftx);
-			float f17 = trans_y(bottomlefty);
-			float f18 = trans_x(bottomrightx);
-			float f19 = trans_y(bottomrighty);
-
-			asm volatile ("lw $v0,  %[x]" ::[x] "m" (a0));
-			asm volatile ("move $a0, $v0");
-			asm volatile ("lw $v0,  %[x]" ::[x] "m" (f12));
-			asm volatile ("mtc1 $v0, $f12");
-			asm volatile ("lw $v0,  %[x]" ::[x] "m" (f13));
-			asm volatile ("mtc1 $v0, $f13");
-			asm volatile ("lw $v0,  %[x]" ::[x] "m" (f14));
-			asm volatile ("mtc1 $v0, $f14");
-			asm volatile ("lw $v0,  %[x]" ::[x] "m" (f15));
-			asm volatile ("mtc1 $v0, $f15");
-			asm volatile ("lw $v0,  %[x]" ::[x] "m" (f16));
-			asm volatile ("mtc1 $v0, $f16");
-			asm volatile ("lw $v0,  %[x]" ::[x] "m" (f17));
-			asm volatile ("mtc1 $v0, $f17");
-			asm volatile ("lw $v0,  %[x]" ::[x] "m" (f18));
-			asm volatile ("mtc1 $v0, $f18");
-			asm volatile ("lw $v0,  %[x]" ::[x] "m" (f19));
-			asm volatile ("mtc1 $v0, $f19");
-			asm volatile ("lw $v0,  %[x]" ::[x] "m" (CSprite2d__Draw2DPolygon));
-			asm volatile ("jalr $v0");
+			CSprite2d__Draw2DPolygon(trans_x(topleftx),trans_y(toplefty),trans_x(toprightx),trans_y(toprighty),
+				trans_x(bottomleftx),trans_y(bottomlefty),trans_x(bottomrightx),trans_y(bottomrighty),rgba);
 		}
 
 		void _print_string(uint16_t *str, float x, float y, eAlign align, float scalex, float scaley, uint8_t *rgba, eStyle style)
@@ -202,24 +171,7 @@ namespace ui
 				fd->m_dwDropColor = 0xFF000000;
 			}
 
-			// print string
-			//CFont__PrintString(trans_x(x), trans_y(y), str, NULL);
-
-			int a0 = (int)str;
-			int a1 = (int)NULL;
-			float f12 = trans_x(x);
-			float f13 = trans_y(y);
-
-			asm volatile ("lw $v0,  %[x]" ::[x] "m" (a0));
-			asm volatile ("move $a0, $v0");
-			asm volatile ("lw $v0,  %[x]" ::[x] "m" (a1));
-			asm volatile ("move $a1, $v0");
-			asm volatile ("lw $v0,  %[x]" ::[x] "m" (f12));
-			asm volatile ("mtc1 $v0, $f12");
-			asm volatile ("lw $v0,  %[x]" ::[x] "m" (f13));
-			asm volatile ("mtc1 $v0, $f13");
-			asm volatile ("lw $v0,  %[x]" ::[x] "m" (CFont__PrintString));
-			asm volatile ("jalr $v0");
+			CFont__PrintString(trans_x(x),trans_y(y),str,nullptr);
 
 			// restore font settings
 			*fd = fdbcp;
@@ -238,12 +190,13 @@ namespace ui
 			// @CSprite2d::Draw2DPolygon
 			FIND_PATTERN("82 94 01 46 C2 9C 00 46");
 			CSprite2d__Draw2DPolygon = cast<fn_CSprite2d__Draw2DPolygon>(addr - 16);
+			CSprite2d__Draw2DPolygon=cast<fn_CSprite2d__Draw2DPolygon>(guest_hooks::bridge(CSprite2d__Draw2DPolygon,PCSX2_GAME_ABI_CALL));
 			utils::log("CSprite2d__Draw2DPolygon: 0x%08X", CSprite2d__Draw2DPolygon);
 
 			// @CHud::Draw
 			FIND_PATTERN("01 00 06 24 D8 04 B1 FF");
 			_CHud__Draw = cast<fn_CHud__Draw>(addr - 12);
-			armhook::hook_mips_func(_CHud__Draw, 8, CHud__Draw, &CHud__Draw_);
+			armhook::hook_mips_calls(_CHud__Draw, CHud__Draw, &CHud__Draw_);
 			utils::log("_CHud__Draw: 0x%08X", _CHud__Draw);
 
 			// @CFont::Details
@@ -258,6 +211,7 @@ namespace ui
 			// @CFont::PrintString
 			FIND_PATTERN("50 00 B6 FF 2D 88 80 00");
 			CFont__PrintString = cast<fn_CFont__PrintString>(addr - 8);
+			CFont__PrintString=cast<fn_CFont__PrintString>(guest_hooks::bridge(CFont__PrintString,PCSX2_GAME_ABI_CALL));
 
 			draw_poly = _draw_poly;
 			print_string = _print_string;
@@ -321,42 +275,11 @@ namespace ui
 		float trans_x(float x) { return x * 480.0; }
 		float trans_y(float y) { return y * 272.0; }
 
-		void _draw_poly(float topleftx, float toplefty, float toprightx, float toprighty,
-					  float bottomleftx, float bottomlefty, float bottomrightx, float bottomrighty, uint8_t *rgba)
+		void _draw_poly(float topleftx,float toplefty,float toprightx,float toprighty,
+			float bottomleftx,float bottomlefty,float bottomrightx,float bottomrighty,uint8_t* rgba)
 		{
-			//CSprite2d__Draw2DPolygon(trans_x(topleftx), trans_y(toplefty), trans_x(toprightx), trans_y(toprighty),
-			//						 trans_x(bottomleftx), trans_y(bottomlefty), trans_x(bottomrightx), trans_y(bottomrighty), rgba);
-
-			int a0 = (int)rgba;
-			float f12 = trans_x(topleftx);
-			float f13 = trans_y(toplefty);
-			float f14 = trans_x(toprightx);
-			float f15 = trans_y(toprighty);
-			float f16 = trans_x(bottomleftx);
-			float f17 = trans_y(bottomlefty);
-			float f18 = trans_x(bottomrightx);
-			float f19 = trans_y(bottomrighty);
-
-			asm volatile ("lw $v0,  %[x]" ::[x] "m" (a0));
-			asm volatile ("move $a0, $v0");
-			asm volatile ("lw $v0,  %[x]" ::[x] "m" (f12));
-			asm volatile ("mtc1 $v0, $f12");
-			asm volatile ("lw $v0,  %[x]" ::[x] "m" (f13));
-			asm volatile ("mtc1 $v0, $f13");
-			asm volatile ("lw $v0,  %[x]" ::[x] "m" (f14));
-			asm volatile ("mtc1 $v0, $f14");
-			asm volatile ("lw $v0,  %[x]" ::[x] "m" (f15));
-			asm volatile ("mtc1 $v0, $f15");
-			asm volatile ("lw $v0,  %[x]" ::[x] "m" (f16));
-			asm volatile ("mtc1 $v0, $f16");
-			asm volatile ("lw $v0,  %[x]" ::[x] "m" (f17));
-			asm volatile ("mtc1 $v0, $f17");
-			asm volatile ("lw $v0,  %[x]" ::[x] "m" (f18));
-			asm volatile ("mtc1 $v0, $f18");
-			asm volatile ("lw $v0,  %[x]" ::[x] "m" (f19));
-			asm volatile ("mtc1 $v0, $f19");
-			asm volatile ("lw $v0,  %[x]" ::[x] "m" (CSprite2d__Draw2DPolygon));
-			asm volatile ("jalr $v0");
+			CSprite2d__Draw2DPolygon(trans_x(topleftx),trans_y(toplefty),trans_x(toprightx),trans_y(toprighty),
+				trans_x(bottomleftx),trans_y(bottomlefty),trans_x(bottomrightx),trans_y(bottomrighty),rgba);
 		}
 
 		void _print_string(uint16_t *str, float x, float y, eAlign align, float scalex, float scaley, uint8_t *rgba, eStyle style)
@@ -424,16 +347,18 @@ namespace ui
 			// @CSprite2d::Draw2DPolygon
 			FIND_PATTERN("49 00 03 3C 49 00 02 3C ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? 00 00 B0 FF C2 9C 00 46");
 			CSprite2d__Draw2DPolygon = cast<fn_CSprite2d__Draw2DPolygon>(addr - 0);
+			CSprite2d__Draw2DPolygon=cast<fn_CSprite2d__Draw2DPolygon>(guest_hooks::bridge(CSprite2d__Draw2DPolygon,PCSX2_GAME_ABI_CALL));
 			utils::log("CSprite2d__Draw2DPolygon: 0x%08X", CSprite2d__Draw2DPolygon);
 
 			// @CHud::Draw
 			FIND_PATTERN("28 00 B1 FF 2D 80 80 00 30 00 B2 FF 38 00 B3 FF 40 00 B4 FF 48 00 B5 FF"); // reads gp related addr
 			_CHud__Draw = cast<fn_CHud__Draw>(addr - 8);
-			armhook::hook_mips_func(_CHud__Draw, 8, CHud__Draw, &CHud__Draw_);
+			armhook::hook_mips_calls(_CHud__Draw, CHud__Draw, &CHud__Draw_);
 
 			// @CFont::PrintString
 			FIND_PATTERN("18 00 B3 FF 2D 90 80 00 20 00 B4 FF 2D 98 A0 00 00 00 B0 FF");
 			CFont__PrintString = cast<fn_CFont__PrintString>(addr - 8);
+			CFont__PrintString=cast<fn_CFont__PrintString>(guest_hooks::bridge(CFont__PrintString,PCSX2_GAME_ABI_CALL));
 
 			#define READ_REL3_ADDR(offset) memutils::mem_read_mips_jmp(cast<ptr>(addr) + offset)
 
@@ -482,7 +407,11 @@ namespace ui
 			localized = psplang::localize(str);
 			str = localized.c_str();
 		}
-		strutils::wstr_from_ansi(unistr, str);
+		// Script menu titles have no length limit; keep the shared buffer terminated.
+		size_t i = 0;
+		for (; str[i] && i < sizeof(unistr) / sizeof(unistr[0]) - 1; i++)
+			unistr[i] = str[i];
+		unistr[i] = 0;
 		return unistr;
 	}
 
@@ -689,7 +618,7 @@ namespace ui
 		if (menu_page_count > 1)
 		{
 			char str[32];
-			sprintf(str, "%d of %d", menu_active_page + 1, menu_page_count);
+			snprintf(str, sizeof(str), "%d of %d", int(menu_active_page + 1), int(menu_page_count));
 			print_string(ansi_to_unicode(str), 0.61, top + 0.04, eAlignCenter, 0.4f, 0.8f, font_color, eStyleSimple);
 		}
 		// draw items

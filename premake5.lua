@@ -1,7 +1,15 @@
+require "vstudio"
+
+-- PS2 as a Visual Studio platform of its own (as premake-consoles does for
+-- consoles); the project is a Makefile one, so no MSBuild platform files are needed.
+premake.vstudio.vs2010_architectures.ps2 = "PS2"
+premake.api.addAllowed("system", "ps2")
+
 workspace "GTALCS.GTAVCS.PCSX2F.CLEO"
    configurations { "Release", "Debug" }
-   platforms { "x64" }
-   architecture "x64"
+   platforms { "PS2" }
+   system "ps2"
+   bindirs { "$(PATH)" } -- unknown VS platform: keep the system PATH for the build commands
    location "build"
    objdir ("build/obj")
    buildlog ("build/log/%{prj.name}.log")

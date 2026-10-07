@@ -1,6 +1,6 @@
 workspace "GTALCS.GTAVCS.PCSX2F.CLEO"
    configurations { "Release", "Debug" }
-   platforms { "Win64" }
+   platforms { "x64" }
    architecture "x64"
    location "build"
    objdir ("build/obj")
